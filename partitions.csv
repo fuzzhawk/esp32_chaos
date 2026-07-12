@@ -1,0 +1,8 @@
+# Partition table for the ESP32-S3-Touch-AMOLED-1.75 (32MB external flash).
+# Name,      Type, SubType,  Offset,   Size,     Flags
+nvs,         data, nvs,      0x9000,   0x6000,
+phy_init,    data, phy,      0xf000,   0x1000,
+factory,     app,  factory,  0x10000,  4M,
+# Remaining flash is a huge FAT area — perfect for a "research OS": scratch
+# space for savegames, cellular-automata patterns, companion memories, logs.
+storage,     data, fat,      ,         24M,
