@@ -1,0 +1,13 @@
+# Managed-component dependencies for the board-support layer.
+# `idf.py reconfigure` (or the first build) fetches these into managed_components/.
+dependencies:
+  idf: ">=5.2"
+  lvgl/lvgl: "~8.3.0"
+  espressif/esp_lvgl_port: "^1.4"
+  # QSPI AMOLED panel driver. The SH8601 driver also drives the CO5300-class
+  # controller on this board via a custom init-command list (see bsp_display.c).
+  espressif/esp_lcd_sh8601: "^1"
+  # FT-series capacitive touch. If your board ships a CST9217 instead, swap this
+  # for espressif/esp_lcd_touch_cst816s (or the matching driver) and update
+  # bsp_touch.c + BSP_TOUCH_CONTROLLER in bsp_pins.h.
+  espressif/esp_lcd_touch_ft5x06: "^1"
