@@ -9,39 +9,52 @@ The board (from the product listing):
 - **Power:** AXP2101 PMIC
 - **Radio:** Wi-Fi 802.11 b/g/n + BLE (onboard antenna)
 
-## Which chips chaosOS assumes
+## Confirmed silicon and pin map
 
-| Function | Assumed part | Driver used | Confidence |
+These values come from Waveshare's own sample code for this exact board variant
+([waveshareteam/ESP32-S3-Touch-AMOLED-1.75C](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C),
+`examples/arduino/libraries/Mylibrary/pin_config.h`), not from guesswork.
+
+| Function | Part | Interface | Driver used |
 | --- | --- | --- | --- |
-| AMOLED controller | **CO5300** (QSPI) | `esp_lcd_sh8601` + CO5300 init list | High for the family; init list is generic |
-| Touch | **FT-series** (FT3168) | `esp_lcd_touch_ft5x06` | Medium — some units ship CST9217 |
-| IMU | **QMI8658** | custom (`bsp_imu.c`) | High for this board family |
-| PMIC | **AXP2101** | custom (`bsp_power.c`) | High |
+| AMOLED controller | **CO5300** | QSPI | `esp_lcd_sh8601` + CO5300 init list |
+| Touch | **CST9217** | I²C `0x5A` | custom (`bsp_touch.c`) |
+| IMU | **QMI8658** | I²C `0x6B` | custom (`bsp_imu.c`) |
+| PMIC | **AXP2101** | I²C `0x34` | custom (`bsp_power.c`) |
 
-## ⚠️ You must verify before flashing
+| Signal | GPIO |
+| --- | --- |
+| `LCD_SCLK` | 38 |
+| `LCD_CS` | 12 |
+| `LCD_SDIO0..3` | 4, 5, 6, 7 |
+| `LCD_RESET` | 1 |
+| `IIC_SDA` | 15 |
+| `IIC_SCL` | 14 |
+| `TP_RST` | 2 |
+| `TP_INT` | 11 (unused — see below) |
 
-None of the GPIO numbers, I²C addresses, or the panel init sequence have been
-checked against real hardware. **Open the Waveshare wiki page and schematic for
-your exact board revision and reconcile every value in
-[`components/bsp/include/bsp_pins.h`](../components/bsp/include/bsp_pins.h).**
+### Two things worth knowing
 
-Checklist:
+**Touch is polled, not interrupt-driven.** The CST9217 pulses its IRQ line
+roughly once a second instead of holding it asserted while a finger is down, so
+it is useless as a "currently pressed" signal. `bsp_touch.c` polls the
+controller from LVGL's input callback and `BSP_TOUCH_INT_GPIO` stays `-1`.
 
-- [ ] **I²C pins** (`BSP_I2C_SDA_GPIO`, `BSP_I2C_SCL_GPIO`) — the shared bus for
-      touch + IMU + PMIC.
-- [ ] **QSPI pins** (`BSP_LCD_PCLK/CS/DATA0..3_GPIO`).
-- [ ] **Display reset** — on many of these boards RST is behind a **TCA9554 I²C
-      IO expander**, not a GPIO. If so, keep `BSP_LCD_RST_GPIO = -1` and pulse
-      reset from `bsp_power.c` after configuring the expander.
-- [ ] **Touch controller** — set `BSP_TOUCH_CONTROLLER`, the I²C address, and (if
-      wrong) swap the managed driver in `components/bsp/idf_component.yml` +
-      `bsp_touch.c`.
-- [ ] **Touch INT/RST pins**.
-- [ ] **IMU address** — QMI8658 is 0x6A or 0x6B depending on the SA0 strap.
-- [ ] **Panel init list** (`s_co5300_init` in `bsp_display.c`) and the
-      **column/row gap** (`BSP_LCD_GAP_X/Y`) if the image is shifted.
-- [ ] **Byte order** — if colours look swapped, flip `flags.swap_bytes` in
-      `bsp.c` (or the RGB/BGR element order in `bsp_display.c`).
+**The CST9217 is not a register-map device.** Reading a touch means: write the
+16-bit command `0xD000`, read a 15-byte report, then write `0xD000 + 0xAB` to
+acknowledge it. Byte 6 must echo `0xAB` or the frame is stale. Finger 0 occupies
+bytes 0..4; byte 5 is the touch count.
+
+## If something still looks wrong
+
+- **Image shifted on the glass** → adjust `BSP_LCD_GAP_X/Y`.
+- **Colours inverted or swapped** → toggle `CONFIG_LV_COLOR_16_SWAP` in
+  `sdkconfig.defaults`, or the RGB/BGR element order in `bsp_display.c`.
+- **Display still dark** → `s_co5300_init` in `bsp_display.c` is a conservative
+  generic DCS sequence; Waveshare's vendor driver uses a longer tuning block
+  that can be transplanted in.
+- **Nothing on I²C** → the serial log prints the QMI8658's WHO_AM_I; a wrong
+  value points at bus wiring rather than at any single chip.
 
 ## Bring-up tips
 

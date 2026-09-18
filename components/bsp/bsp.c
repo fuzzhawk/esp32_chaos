@@ -16,6 +16,27 @@ static const char *TAG = "bsp";
 
 static lv_disp_t                 *s_disp;
 static esp_lcd_panel_io_handle_t  s_panel_io;
+static lv_indev_drv_t             s_indev_drv;
+
+/* LVGL polls this; it runs on the LVGL task so the blocking I2C read is fine
+ * (a 15-byte transfer at 400kHz is well under a millisecond). LVGL needs the
+ * last known coordinates on release, so they are held between presses. */
+static void touch_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
+{
+    (void)drv;
+    static uint16_t last_x, last_y;
+    uint16_t x, y;
+
+    if (bsp_touch_get_point(&x, &y)) {
+        last_x = x;
+        last_y = y;
+        data->state = LV_INDEV_STATE_PRESSED;
+    } else {
+        data->state = LV_INDEV_STATE_RELEASED;
+    }
+    data->point.x = last_x;
+    data->point.y = last_y;
+}
 
 esp_err_t bsp_init(void)
 {
@@ -49,11 +70,18 @@ esp_err_t bsp_init(void)
         return ESP_FAIL;
     }
 
-    /* --- touch --- */
-    esp_lcd_touch_handle_t touch = NULL;
-    if (bsp_touch_init(&touch) == ESP_OK) {
-        const lvgl_port_touch_cfg_t touch_cfg = { .disp = s_disp, .handle = touch };
-        lvgl_port_add_touch(&touch_cfg);
+    /* --- touch ---
+     * Registered as a plain LVGL pointer device rather than through
+     * lvgl_port_add_touch(), which requires an esp_lcd_touch handle; the
+     * CST9217 has no esp_lcd_touch driver so we poll it ourselves. */
+    if (bsp_touch_init() == ESP_OK) {
+        lvgl_port_lock(0);
+        lv_indev_drv_init(&s_indev_drv);
+        s_indev_drv.type    = LV_INDEV_TYPE_POINTER;
+        s_indev_drv.disp    = s_disp;
+        s_indev_drv.read_cb = touch_read_cb;
+        lv_indev_drv_register(&s_indev_drv);
+        lvgl_port_unlock();
     } else {
         ESP_LOGW(TAG, "continuing without touch");
     }

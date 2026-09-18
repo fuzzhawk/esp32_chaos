@@ -3,7 +3,6 @@
 
 #include "esp_err.h"
 #include "esp_lcd_types.h"
-#include "esp_lcd_touch.h"
 #include "driver/i2c_master.h"
 #include "lvgl.h"
 
@@ -16,8 +15,9 @@ esp_err_t bsp_display_init(esp_lcd_panel_io_handle_t *out_io,
                            esp_lcd_panel_handle_t *out_panel);
 esp_err_t bsp_display_set_brightness(esp_lcd_panel_io_handle_t io, uint8_t percent);
 
-/* Touch bring-up; the returned handle is handed to esp_lvgl_port. */
-esp_err_t bsp_touch_init(esp_lcd_touch_handle_t *out_touch);
+/* CST9217 touch. bsp_touch_get_point() returns true while a finger is down. */
+esp_err_t bsp_touch_init(void);
+bool bsp_touch_get_point(uint16_t *out_x, uint16_t *out_y);
 
 /* Sensors / power (own their I2C device handles internally). */
 esp_err_t bsp_imu_init(void);

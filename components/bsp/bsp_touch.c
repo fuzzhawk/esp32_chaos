@@ -1,41 +1,101 @@
 /*
- * bsp_touch.c — capacitive touch bring-up.
+ * bsp_touch.c — CST9217 capacitive touch driver.
  *
- * Defaults to an FT-series controller (FT3168 is register-compatible with
- * the ft5x06 driver's read path). For a CST9217 board, swap the managed
- * component in idf_component.yml and the *_new_i2c_* call below.
+ * The CST92xx family speaks a small request/ack protocol rather than a plain
+ * register map:
+ *   1. write the 16-bit read command 0xD000
+ *   2. read back a 15-byte report
+ *   3. write 0xD000 + 0xAB to acknowledge it
+ * Byte 6 of the report must echo 0xAB or the frame is stale. Finger 0 lives at
+ * bytes 0..4; byte 5 holds the touch count; a second finger (which we ignore)
+ * starts at byte 7.
+ *
+ * Protocol reference: Waveshare's own sample code for this board
+ * (SensorLib TouchDrvCST92xx). The chip's IRQ line only pulses periodically
+ * rather than tracking press state, so we poll instead of using it.
  */
 #include "bsp_priv.h"
 #include "bsp_pins.h"
-#include "esp_lcd_panel_io.h"
-#include "esp_lcd_touch_ft5x06.h"
+#include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "esp_check.h"
 #include "esp_log.h"
 
 static const char *TAG = "bsp_touch";
 
-esp_err_t bsp_touch_init(esp_lcd_touch_handle_t *out_touch)
+#define CST_READ_CMD_H   0xD0
+#define CST_READ_CMD_L   0x00
+#define CST_ACK          0xAB
+#define CST_MAX_FINGERS  2
+#define CST_REPORT_LEN   (CST_MAX_FINGERS * 5 + 5)   /* 15 bytes */
+#define CST_EVT_DOWN     0x06
+
+static i2c_master_dev_handle_t s_dev;
+
+esp_err_t bsp_touch_init(void)
 {
-    const esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_FT5x06_CONFIG();
-
-    esp_lcd_panel_io_handle_t tp_io = NULL;
-    ESP_RETURN_ON_ERROR(
-        esp_lcd_new_panel_io_i2c(bsp_i2c_bus(), &io_cfg, &tp_io),
-        TAG, "touch panel io");
-
-    const esp_lcd_touch_config_t tp_cfg = {
-        .x_max        = BSP_LCD_H_RES,
-        .y_max        = BSP_LCD_V_RES,
-        .rst_gpio_num = BSP_TOUCH_RST_GPIO,
-        .int_gpio_num = BSP_TOUCH_INT_GPIO,
-        .levels = { .reset = 0, .interrupt = 0 },
-        .flags  = { .swap_xy = 0, .mirror_x = 0, .mirror_y = 0 },
+    const i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address  = BSP_TOUCH_I2C_ADDR,
+        .scl_speed_hz    = BSP_I2C_FREQ_HZ,
     };
+    ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(bsp_i2c_bus(), &dev_cfg, &s_dev),
+                        TAG, "add touch device");
 
-    esp_err_t err = esp_lcd_touch_new_i2c_ft5x06(tp_io, &tp_cfg, out_touch);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "touch init failed: %s (check controller/addr in bsp_pins.h)",
-                 esp_err_to_name(err));
+#if BSP_TOUCH_RST_GPIO >= 0
+    const gpio_config_t rst_cfg = {
+        .pin_bit_mask = 1ULL << BSP_TOUCH_RST_GPIO,
+        .mode         = GPIO_MODE_OUTPUT,
+    };
+    ESP_RETURN_ON_ERROR(gpio_config(&rst_cfg), TAG, "touch rst cfg");
+    gpio_set_level(BSP_TOUCH_RST_GPIO, 0);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    gpio_set_level(BSP_TOUCH_RST_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(50));      /* controller boot time */
+#endif
+
+    ESP_LOGI(TAG, "CST9217 ready at 0x%02X", BSP_TOUCH_I2C_ADDR);
+    return ESP_OK;
+}
+
+bool bsp_touch_get_point(uint16_t *out_x, uint16_t *out_y)
+{
+    if (!s_dev) return false;
+
+    const uint8_t req[2] = { CST_READ_CMD_H, CST_READ_CMD_L };
+    uint8_t rx[CST_REPORT_LEN] = {0};
+
+    if (i2c_master_transmit_receive(s_dev, req, sizeof(req), rx, sizeof(rx), 50) != ESP_OK) {
+        return false;
     }
-    return err;
+
+    /* Acknowledge the report so the controller can produce the next one. */
+    const uint8_t ack[3] = { CST_READ_CMD_H, CST_READ_CMD_L, CST_ACK };
+    i2c_master_transmit(s_dev, ack, sizeof(ack), 50);
+
+    if (rx[6] != CST_ACK) {
+        return false;                    /* stale / incomplete frame */
+    }
+
+    uint8_t points = rx[5] & 0x7F;
+    if (points == 0 || points > CST_MAX_FINGERS) {
+        return false;
+    }
+
+    /* Finger 0 only — chaosOS is a single-touch UI. */
+    const uint8_t evt = rx[0] & 0x0F;
+    if (evt != CST_EVT_DOWN) {
+        return false;                    /* finger lifted */
+    }
+
+    uint16_t x = (uint16_t)((rx[1] << 4) | (rx[3] >> 4));
+    uint16_t y = (uint16_t)((rx[2] << 4) | (rx[3] & 0x0F));
+
+    if (x >= BSP_LCD_H_RES) x = BSP_LCD_H_RES - 1;
+    if (y >= BSP_LCD_V_RES) y = BSP_LCD_V_RES - 1;
+
+    *out_x = x;
+    *out_y = y;
+    return true;
 }

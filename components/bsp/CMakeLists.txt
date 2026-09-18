@@ -12,5 +12,5 @@ idf_component_register(
     REQUIRES driver esp_lcd lvgl
     # Private deps: the panel/touch/port drivers are pulled in via
     # idf_component.yml and only referenced inside the .c files.
-    PRIV_REQUIRES esp_timer esp_lvgl_port esp_lcd_sh8601 esp_lcd_touch_ft5x06
+    PRIV_REQUIRES esp_timer esp_lvgl_port esp_lcd_sh8601
 )
