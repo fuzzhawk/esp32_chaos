@@ -115,7 +115,11 @@ static void generate(void)
 
 static inline bool displaceable(uint8_t v)      { return v == EMPTY || v == WATER; }
 
-static void step_powder(int x, int y, uint8_t self, int dx, int dy, int px, int py)
+/* Returns true if the cell actually moved. Callers must check this: the
+ * `moved` flag marks the destination, not the source, so testing moved(x,y)
+ * after a successful move reports false and lets follow-up code act on a cell
+ * that is no longer there. */
+static bool step_powder(int x, int y, uint8_t self, int dx, int dy, int px, int py)
 {
     /* Straight down-gravity first; sand sinks through water. */
     uint8_t below = at(x + dx, y + dy);
@@ -123,7 +127,7 @@ static void step_powder(int x, int y, uint8_t self, int dx, int dy, int px, int 
         put(x + dx, y + dy, self);
         put(x, y, below == WATER ? WATER : EMPTY);
         mark(x + dx, y + dy);
-        return;
+        return true;
     }
 
     /* Then the two down-diagonals, in random order so piles stay symmetric. */
@@ -135,9 +139,10 @@ static void step_powder(int x, int y, uint8_t self, int dx, int dy, int px, int 
             put(nx, ny, self);
             put(x, y, EMPTY);
             mark(nx, ny);
-            return;
+            return true;
         }
     }
+    return false;
 }
 
 static void step_water(int x, int y, int dx, int dy, int px, int py)
@@ -156,10 +161,11 @@ static void step_water(int x, int y, int dx, int dy, int px, int py)
         }
     }
 
-    step_powder(x, y, WATER, dx, dy, px, py);
-    if (moved(x, y)) return;
+    if (step_powder(x, y, WATER, dx, dy, px, py)) return;
 
-    /* Still stuck: spread sideways so it levels out. */
+    /* Still stuck: spread sideways so it levels out. This is a move, not a
+     * spawn — bail out if the cell no longer holds water. */
+    if (at(x, y) != WATER) return;
     int s = (fx_rand() & 1) ? 1 : -1;
     for (int i = 0; i < 2; i++, s = -s) {
         int nx = x + px * s, ny = y + py * s;

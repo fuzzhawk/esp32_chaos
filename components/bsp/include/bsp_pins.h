@@ -45,8 +45,11 @@
  * transaction, and it fails outright rather than splitting for you. */
 #define BSP_LCD_BAND_LINES      100
 
-/* Adjust only if the image sits off-centre on the glass. */
-#define BSP_LCD_GAP_X           0
+/* The CO5300's visible window starts at column 6, not 0 — every Waveshare
+ * example constructs the panel with col_offset1 = 6. Without this the image
+ * sits 6px left of centre and the rightmost visible columns show whatever is
+ * left in panel RAM, which reads as a bright stripe down the right edge. */
+#define BSP_LCD_GAP_X           6
 #define BSP_LCD_GAP_Y           0
 
 /* ------------------------------------------------------------------ */
