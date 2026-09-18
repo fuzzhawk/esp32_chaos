@@ -7,11 +7,14 @@ CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
 
 # Octal PSRAM at 80MHz — required for a smooth 466x466 framebuffer.
+# NOTE: do NOT enable CONFIG_SPIRAM_FETCH_INSTRUCTIONS / CONFIG_SPIRAM_RODATA
+# here. They remap .text/.rodata from flash into PSRAM right after the PSRAM
+# memory test and hang the boot on this board. We allocate the large buffers
+# explicitly with heap_caps_malloc(MALLOC_CAP_SPIRAM) instead, so they buy
+# us nothing.
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
-CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
-CONFIG_SPIRAM_RODATA=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 
@@ -43,6 +46,12 @@ CONFIG_LV_FONT_MONTSERRAT_40=y
 CONFIG_LV_FONT_MONTSERRAT_48=y
 # Draw the app framebuffers/canvases used by the cellular-automata app.
 CONFIG_LV_USE_CANVAS=y
+
+# --- Console over the USB-C port ---
+# This board exposes the ESP32-S3's native USB (it enumerates as
+# /dev/cu.usbmodem* on macOS), not a UART bridge chip. Send the console
+# there so the full boot log reaches `screen`, instead of out UART0's pins.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
 # Quieter logs once things work; bump to INFO/DEBUG while bringing up hardware.
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
