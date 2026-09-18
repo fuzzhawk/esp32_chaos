@@ -30,7 +30,7 @@ static const sh8601_lcd_init_cmd_t s_co5300_init[] = {
     {0x3A, (uint8_t[]){0x55}, 1, 0},   /* pixel format: 16bpp / RGB565      */
     {0x35, (uint8_t[]){0x00}, 1, 0},   /* tearing-effect line on            */
     {0x53, (uint8_t[]){0x20}, 1, 1},   /* brightness control block on       */
-    {0x51, (uint8_t[]){0x00}, 1, 0},   /* start dark; ramp up after init    */
+    {0x51, (uint8_t[]){0xFF}, 1, 0},   /* full brightness from the start    */
     {0x11, (uint8_t[]){0x00}, 0, 80},  /* sleep out                         */
     {0x29, (uint8_t[]){0x00}, 0, 20},  /* display on                        */
 };

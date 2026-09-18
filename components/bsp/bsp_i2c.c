@@ -2,6 +2,7 @@
 #include "bsp_priv.h"
 #include "bsp_pins.h"
 #include "esp_log.h"
+#include <stdio.h>
 static const char *TAG = "bsp_i2c";
 static i2c_master_bus_handle_t s_bus;
 
@@ -32,26 +33,37 @@ i2c_master_bus_handle_t bsp_i2c_bus(void)
 
 bool bsp_i2c_present(uint8_t addr)
 {
-    return s_bus && i2c_master_probe(s_bus, addr, 100) == ESP_OK;
+    /* Short timeout on purpose: a present chip ACKs in well under a
+     * millisecond, and a full 0x08..0x77 sweep at 100ms/address would stall
+     * boot for 11 seconds when the bus is dead. */
+    return s_bus && i2c_master_probe(s_bus, addr, 10) == ESP_OK;
 }
 
 /* Walk the bus and report every device that ACKs. This is the single most
  * useful thing in the log when a peripheral goes quiet: it separates "the bus
- * is dead" from "one chip is at an unexpected address". */
-void bsp_i2c_scan(void)
+ * is dead" from "one chip is at an unexpected address".
+ * Writes a space-separated address list into `out`; returns the count. */
+int bsp_i2c_scan(char *out, size_t len)
 {
     ESP_LOGI(TAG, "scanning I2C bus (SDA=%d SCL=%d @ %d Hz)",
              BSP_I2C_SDA_GPIO, BSP_I2C_SCL_GPIO, BSP_I2C_FREQ_HZ);
 
     int found = 0;
+    size_t used = 0;
+    if (out && len) out[0] = '\0';
+
     for (uint8_t addr = 0x08; addr < 0x78; addr++) {
-        if (bsp_i2c_present(addr)) {
-            const char *who = (addr == BSP_TOUCH_I2C_ADDR)   ? " (CST9217 touch)"
-                            : (addr == BSP_IMU_I2C_ADDR)     ? " (QMI8658 IMU)"
-                            : (addr == BSP_AXP2101_I2C_ADDR) ? " (AXP2101 PMIC)"
-                            : "";
-            ESP_LOGI(TAG, "  found device at 0x%02X%s", addr, who);
-            found++;
+        if (!bsp_i2c_present(addr)) continue;
+
+        const char *who = (addr == BSP_TOUCH_I2C_ADDR)   ? " (CST9217 touch)"
+                        : (addr == BSP_IMU_I2C_ADDR)     ? " (QMI8658 IMU)"
+                        : (addr == BSP_AXP2101_I2C_ADDR) ? " (AXP2101 PMIC)"
+                        : "";
+        ESP_LOGI(TAG, "  found device at 0x%02X%s", addr, who);
+        found++;
+        if (out && used + 6 < len) {
+            used += snprintf(out + used, len - used, "%s0x%02X",
+                             used ? " " : "", addr);
         }
     }
 
@@ -61,4 +73,5 @@ void bsp_i2c_scan(void)
     } else {
         ESP_LOGI(TAG, "  %d device(s) responded", found);
     }
+    return found;
 }
