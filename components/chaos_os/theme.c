@@ -10,6 +10,7 @@ void theme_screen(lv_obj_t *obj)
     lv_obj_set_style_radius(obj, 0, 0);
     lv_obj_set_style_pad_all(obj, 0, 0);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
 }
 
 lv_obj_t *theme_card(lv_obj_t *parent)
@@ -21,6 +22,7 @@ lv_obj_t *theme_card(lv_obj_t *parent)
     lv_obj_set_style_radius(card, 22, 0);
     lv_obj_set_style_pad_all(card, 14, 0);
     lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(card, LV_SCROLLBAR_MODE_OFF);
     return card;
 }
 

@@ -29,6 +29,8 @@ static lv_obj_t *make_tile(lv_obj_t *parent, const chaos_app_desc_t *app)
 
     lv_obj_t *col = lv_obj_create(tile);
     lv_obj_remove_style_all(col);
+    lv_obj_clear_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(col, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_grow(col, 1);
     lv_obj_set_height(col, LV_SIZE_CONTENT);

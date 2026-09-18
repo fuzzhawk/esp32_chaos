@@ -100,8 +100,17 @@ bool bsp_touch_get_point(uint16_t *out_x, uint16_t *out_y)
     uint16_t x = (uint16_t)((rx[1] << 4) | (rx[3] >> 4));
     uint16_t y = (uint16_t)((rx[2] << 4) | (rx[3] & 0x0F));
 
+#if BSP_TOUCH_SWAP_XY
+    { uint16_t t = x; x = y; y = t; }
+#endif
     if (x >= BSP_LCD_H_RES) x = BSP_LCD_H_RES - 1;
     if (y >= BSP_LCD_V_RES) y = BSP_LCD_V_RES - 1;
+#if BSP_TOUCH_MIRROR_X
+    x = (BSP_LCD_H_RES - 1) - x;
+#endif
+#if BSP_TOUCH_MIRROR_Y
+    y = (BSP_LCD_V_RES - 1) - y;
+#endif
 
     *out_x = x;
     *out_y = y;

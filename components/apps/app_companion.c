@@ -25,6 +25,7 @@ typedef struct {
     float     agit;                          /* 0 calm .. 1 agitated */
     float     dilate;                        /* 1.0 .. ~1.6 */
     uint32_t  phrase_ms, blink_ms, next_blink_ms, blink_left_ms;
+    float     idle_phase;                    /* slow wander, anti burn-in */
     uint32_t  accent;
     char      buf[72];
     int32_t   encounters;
@@ -142,11 +143,13 @@ static void odd_open(chaos_app_t *app)
     odd_load(o, &last_seen);
     o->encounters++;
 
-    /* sclera */
+    /* sclera — deliberately not pure white. A 264px static near-white disc is
+     * the worst thing you can leave on an AMOLED, and this app is otherwise
+     * all black, so the eye is dimmed and kept drifting (see odd_tick). */
     o->sclera = lv_obj_create(app->root);
     lv_obj_set_size(o->sclera, 264, 264);
     lv_obj_set_style_radius(o->sclera, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(o->sclera, lv_color_hex(0xF3F0E7), 0);
+    lv_obj_set_style_bg_color(o->sclera, lv_color_hex(0xC9C5BA), 0);
     lv_obj_set_style_border_width(o->sclera, 0, 0);
     lv_obj_set_style_shadow_width(o->sclera, 0, 0);
     lv_obj_clear_flag(o->sclera, LV_OBJ_FLAG_SCROLLABLE);
@@ -207,10 +210,24 @@ static void odd_tick(chaos_app_t *app, uint32_t dt)
 {
     odd_t *o = app->user;
 
+    /* A slow wander layered on top of the tilt target. It keeps the eye alive
+     * when the IMU is quiet, and — more importantly — stops a big bright disc
+     * from sitting on the same pixels indefinitely. */
+    o->idle_phase += dt * 0.0006f;
+    float wander_x = sinf(o->idle_phase) * 12.0f;
+    float wander_y = cosf(o->idle_phase * 0.73f) * 9.0f;
+
     /* ease pupil toward where the tilt is pointing */
-    o->cur_x += (o->tgt_x - o->cur_x) * 0.18f;
-    o->cur_y += (o->tgt_y - o->cur_y) * 0.18f;
+    o->cur_x += ((o->tgt_x + wander_x) - o->cur_x) * 0.18f;
+    o->cur_y += ((o->tgt_y + wander_y) - o->cur_y) * 0.18f;
     lv_obj_align(o->iris, LV_ALIGN_CENTER, (int)o->cur_x, (int)o->cur_y);
+
+    /* Shift the whole eye a few pixels on a slower cycle — standard OLED
+     * pixel-shifting, too small to notice but enough to spread the load. */
+    int shift_x = (int)(sinf(o->idle_phase * 0.31f) * 4.0f);
+    int shift_y = (int)(cosf(o->idle_phase * 0.27f) * 4.0f);
+    lv_obj_align(o->sclera, LV_ALIGN_CENTER, shift_x, -22 + shift_y);
+    lv_obj_align(o->lid,    LV_ALIGN_CENTER, shift_x, -22 + shift_y);
 
     /* agitation cools; dilation relaxes */
     o->agit  -= dt * 0.00007f;   if (o->agit < 0) o->agit = 0;

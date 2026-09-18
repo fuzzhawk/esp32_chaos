@@ -49,6 +49,12 @@
 /* ------------------------------------------------------------------ */
 #define BSP_TOUCH_I2C_ADDR      0x5A
 #define BSP_TOUCH_RST_GPIO      2        /* TP_RST */
+/* The panel is mounted 180° relative to the touch layer: Waveshare's own LVGL
+ * example calls setMirrorXY(true, true). Without this, taps land at the point
+ * diagonally opposite and scrolling runs backwards. */
+#define BSP_TOUCH_MIRROR_X      1
+#define BSP_TOUCH_MIRROR_Y      1
+#define BSP_TOUCH_SWAP_XY       0
 /* TP_INT is GPIO11, but per the vendor driver the CST9217 pulses its IRQ
  * about once a second rather than holding it low while touched, so it is
  * useless as a "currently pressed" signal. We poll from the LVGL input
