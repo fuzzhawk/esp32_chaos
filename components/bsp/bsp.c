@@ -42,8 +42,17 @@ esp_err_t bsp_init(void)
 {
     ESP_LOGI(TAG, "chaosOS board bring-up");
 
-    ESP_RETURN_ON_ERROR(bsp_i2c_init(),   TAG, "i2c");
-    ESP_RETURN_ON_ERROR(bsp_power_init(), TAG, "power");
+    /* The I2C driver logs an ERROR line for every failed transaction, which
+     * drowns the console if a chip is missing. Our own layers report what
+     * matters (see the bus scan below), so silence the driver's chatter. */
+    esp_log_level_set("i2c.master", ESP_LOG_NONE);
+
+    ESP_RETURN_ON_ERROR(bsp_i2c_init(), TAG, "i2c");
+    bsp_i2c_scan();
+
+    if (bsp_power_init() != ESP_OK) {
+        ESP_LOGW(TAG, "continuing without PMIC telemetry");
+    }
 
     /* --- display --- */
     esp_lcd_panel_handle_t panel = NULL;

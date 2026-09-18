@@ -28,6 +28,12 @@ static esp_err_t rd(uint8_t reg, uint8_t *val)
 
 esp_err_t bsp_power_init(void)
 {
+    if (!bsp_i2c_present(BSP_AXP2101_I2C_ADDR)) {
+        ESP_LOGW(TAG, "no AXP2101 at 0x%02X — battery reporting disabled",
+                 BSP_AXP2101_I2C_ADDR);
+        return ESP_ERR_NOT_FOUND;
+    }
+
     const i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address  = BSP_AXP2101_I2C_ADDR,
@@ -41,7 +47,8 @@ esp_err_t bsp_power_init(void)
 
 esp_err_t bsp_power_status(bsp_power_status_t *out)
 {
-    if (!out) return ESP_ERR_INVALID_ARG;
+    if (!out)   return ESP_ERR_INVALID_ARG;
+    if (!s_dev) return ESP_ERR_INVALID_STATE;   /* absent: no bus traffic */
 
     uint8_t soc = 0, s1 = 0, s2 = 0;
     rd(AXP_GAUGE_SOC, &soc);

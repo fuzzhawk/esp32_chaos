@@ -39,6 +39,12 @@ static esp_err_t rd(uint8_t reg, uint8_t *dst, size_t len)
 
 esp_err_t bsp_imu_init(void)
 {
+    if (!bsp_i2c_present(BSP_IMU_I2C_ADDR)) {
+        ESP_LOGW(TAG, "no QMI8658 at 0x%02X — motion events disabled",
+                 BSP_IMU_I2C_ADDR);
+        return ESP_ERR_NOT_FOUND;   /* s_dev stays NULL; reads become no-ops */
+    }
+
     const i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address  = BSP_IMU_I2C_ADDR,
@@ -64,6 +70,7 @@ esp_err_t bsp_imu_read(bsp_imu_sample_t *out)
 {
     if (!out) return ESP_ERR_INVALID_ARG;
     out->valid = false;
+    if (!s_dev) return ESP_ERR_INVALID_STATE;   /* absent: no bus traffic */
 
     uint8_t t[2];
     int16_t raw[6];

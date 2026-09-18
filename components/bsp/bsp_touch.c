@@ -55,6 +55,14 @@ esp_err_t bsp_touch_init(void)
     vTaskDelay(pdMS_TO_TICKS(50));      /* controller boot time */
 #endif
 
+    /* Probe after reset — the CST9217 needs the reset pulse before it ACKs. */
+    if (!bsp_i2c_present(BSP_TOUCH_I2C_ADDR)) {
+        ESP_LOGW(TAG, "no CST9217 at 0x%02X — touch disabled",
+                 BSP_TOUCH_I2C_ADDR);
+        s_dev = NULL;                   /* polling becomes a no-op */
+        return ESP_ERR_NOT_FOUND;
+    }
+
     ESP_LOGI(TAG, "CST9217 ready at 0x%02X", BSP_TOUCH_I2C_ADDR);
     return ESP_OK;
 }

@@ -19,7 +19,9 @@
 #define BSP_I2C_PORT            0
 #define BSP_I2C_SDA_GPIO        15
 #define BSP_I2C_SCL_GPIO        14
-#define BSP_I2C_FREQ_HZ         400000
+/* Waveshare's own examples run this bus at 100kHz. 400kHz needs stronger
+ * pull-ups than this board provides and every transaction NAKs. */
+#define BSP_I2C_FREQ_HZ         100000
 
 /* ------------------------------------------------------------------ */
 /*  AMOLED panel — CO5300 controller over QSPI, 466x466, RGB565.       */

@@ -1,6 +1,8 @@
 /* bsp_priv.h — cross-file plumbing internal to the bsp component. */
 #pragma once
 
+#include <stdbool.h>
+#include <stdint.h>
 #include "esp_err.h"
 #include "esp_lcd_types.h"
 #include "driver/i2c_master.h"
@@ -9,6 +11,8 @@
 /* The one shared I2C bus (touch + IMU + PMIC live here). */
 esp_err_t bsp_i2c_init(void);
 i2c_master_bus_handle_t bsp_i2c_bus(void);
+bool bsp_i2c_present(uint8_t addr);
+void bsp_i2c_scan(void);
 
 /* AMOLED panel bring-up (QSPI + CO5300 init). Fills the two handles. */
 esp_err_t bsp_display_init(esp_lcd_panel_io_handle_t *out_io,
