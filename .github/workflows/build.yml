@@ -1,0 +1,44 @@
+name: Build firmware
+
+# Builds chaosOS in the cloud so you don't need an ESP-IDF toolchain on your
+# own machine. Every push produces a ready-to-flash binary you can download
+# from the run's "Artifacts" section.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:        # lets you start a build by hand from the Actions tab
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build + merge into a single flashable image
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.2.2
+          target: esp32s3
+          # merge_bin glues bootloader + partition table + app into ONE file
+          # that flashes to offset 0x0, so flashing is a single command.
+          command: >-
+            idf.py build &&
+            cd build &&
+            esptool.py --chip esp32s3 merge_bin -o chaos_os-merged.bin @flash_args
+
+      - name: Collect the files worth downloading
+        run: |
+          mkdir -p artifacts
+          cp build/chaos_os-merged.bin     artifacts/
+          cp build/chaos_os.bin            artifacts/
+          cp build/bootloader/bootloader.bin       artifacts/
+          cp build/partition_table/partition-table.bin artifacts/
+          ls -lh artifacts
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos_os-firmware
+          path: artifacts/
+          if-no-files-found: error
