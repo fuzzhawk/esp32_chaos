@@ -140,6 +140,10 @@ static void sensor_task(void *arg)
     int      throttle = 0;
 
     for (;;) {
+        /* Advance every iteration, not just on a successful IMU read — the
+         * board boots fine without an IMU and the throttles must still work. */
+        throttle++;
+
         bsp_imu_sample_t s;
         if (bsp_imu_read(&s) == ESP_OK && s.valid) {
             float mag  = sqrtf(s.ax * s.ax + s.ay * s.ay + s.az * s.az);
@@ -155,7 +159,7 @@ static void sensor_task(void *arg)
             }
 
             /* Tilt at ~10 Hz so the companion can track it smoothly. */
-            if (++throttle % 5 == 0) {
+            if (throttle % 5 == 0) {
                 chaos_event_t ev = { .type = CHAOS_EV_TILT, .ts_ms = now };
                 ev.vec.x = atan2f(s.ay, s.az) * 57.2958f;                       /* roll  */
                 ev.vec.y = atan2f(-s.ax, sqrtf(s.ay * s.ay + s.az * s.az)) * 57.2958f; /* pitch */

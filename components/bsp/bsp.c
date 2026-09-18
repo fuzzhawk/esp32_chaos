@@ -40,8 +40,7 @@ esp_err_t bsp_init(void)
         .hres          = BSP_LCD_H_RES,
         .vres          = BSP_LCD_V_RES,
         .flags = {
-            .buff_spiram = true,
-            .swap_bytes  = true,   /* RGB565 byte order for QSPI DCS writes */
+            .buff_spiram = true,   /* framebuffers live in PSRAM */
         },
     };
     s_disp = lvgl_port_add_disp(&disp_cfg);

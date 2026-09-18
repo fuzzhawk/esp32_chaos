@@ -28,6 +28,9 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
 # --- LVGL: 16-bit color to match the panel's RGB565 path ---
 CONFIG_LV_COLOR_DEPTH_16=y
+# esp_lcd sends RGB565 big-endian, so LVGL must swap the two bytes itself.
+# (This is the LVGL-8 equivalent of esp_lvgl_port's swap_bytes flag.)
+CONFIG_LV_COLOR_16_SWAP=y
 CONFIG_LV_MEM_CUSTOM=y
 CONFIG_LV_MEMCPY_MEMSET_STD=y
 # Give LVGL its heap in PSRAM and a generous slice — big canvases live there.
