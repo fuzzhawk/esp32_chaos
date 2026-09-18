@@ -25,7 +25,11 @@ typedef struct {
     float     agit;                          /* 0 calm .. 1 agitated */
     float     dilate;                        /* 1.0 .. ~1.6 */
     uint32_t  phrase_ms, blink_ms, next_blink_ms, blink_left_ms;
-    float     idle_phase;                    /* slow wander, anti burn-in */
+    float     idle_phase;                    /* slow gaze wander */
+    uint32_t  shift_ms;                      /* anti burn-in pixel shift */
+    uint8_t   shift_idx;
+    int       last_psz;                      /* skip no-op redraws */
+    uint32_t  last_iris_col;
     uint32_t  accent;
     char      buf[72];
     int32_t   encounters;
@@ -210,9 +214,10 @@ static void odd_tick(chaos_app_t *app, uint32_t dt)
 {
     odd_t *o = app->user;
 
-    /* A slow wander layered on top of the tilt target. It keeps the eye alive
-     * when the IMU is quiet, and — more importantly — stops a big bright disc
-     * from sitting on the same pixels indefinitely. */
+    /* A slow wander layered on top of the tilt target, so the eye stays alive
+     * when the IMU is quiet. Only the iris moves per frame — deliberately not
+     * the sclera, which is large enough that redrawing it every tick causes
+     * visible shearing. */
     o->idle_phase += dt * 0.0006f;
     float wander_x = sinf(o->idle_phase) * 12.0f;
     float wander_y = cosf(o->idle_phase * 0.73f) * 9.0f;
@@ -222,22 +227,36 @@ static void odd_tick(chaos_app_t *app, uint32_t dt)
     o->cur_y += ((o->tgt_y + wander_y) - o->cur_y) * 0.18f;
     lv_obj_align(o->iris, LV_ALIGN_CENTER, (int)o->cur_x, (int)o->cur_y);
 
-    /* Shift the whole eye a few pixels on a slower cycle — standard OLED
-     * pixel-shifting, too small to notice but enough to spread the load. */
-    int shift_x = (int)(sinf(o->idle_phase * 0.31f) * 4.0f);
-    int shift_y = (int)(cosf(o->idle_phase * 0.27f) * 4.0f);
-    lv_obj_align(o->sclera, LV_ALIGN_CENTER, shift_x, -22 + shift_y);
-    lv_obj_align(o->lid,    LV_ALIGN_CENTER, shift_x, -22 + shift_y);
+    /* Nudge the whole eye a few pixels once every 20s. Enough to spread AMOLED
+     * wear, rare enough to cost nothing in redraw. */
+    o->shift_ms += dt;
+    if (o->shift_ms >= 20000) {
+        o->shift_ms = 0;
+        o->shift_idx = (o->shift_idx + 1) & 0x03;
+        static const int8_t sx[4] = { 0, 3, 3, 0 };
+        static const int8_t sy[4] = { 0, 0, 3, 3 };
+        lv_obj_align(o->sclera, LV_ALIGN_CENTER, sx[o->shift_idx], -22 + sy[o->shift_idx]);
+        lv_obj_align(o->lid,    LV_ALIGN_CENTER, sx[o->shift_idx], -22 + sy[o->shift_idx]);
+    }
 
     /* agitation cools; dilation relaxes */
     o->agit  -= dt * 0.00007f;   if (o->agit < 0) o->agit = 0;
     o->dilate += (1.0f - o->dilate) * 0.06f;
 
+    /* Only touch the pupil/iris when they actually change — LVGL invalidates
+     * the whole eye on every set_size/colour write, and doing that at 30Hz for
+     * no reason is what turns a redraw into a visible tear. */
     int psz = (int)(54 * o->dilate);
-    lv_obj_set_size(o->pupil, psz, psz);
-    lv_obj_center(o->pupil);
-    lv_obj_set_style_bg_color(o->iris,
-        lv_color_hex(mix(o->accent, CHAOS_COL_DANGER, o->agit)), 0);
+    if (psz != o->last_psz) {
+        o->last_psz = psz;
+        lv_obj_set_size(o->pupil, psz, psz);
+        lv_obj_center(o->pupil);
+    }
+    uint32_t iris_col = mix(o->accent, CHAOS_COL_DANGER, o->agit);
+    if (iris_col != o->last_iris_col) {
+        o->last_iris_col = iris_col;
+        lv_obj_set_style_bg_color(o->iris, lv_color_hex(iris_col), 0);
+    }
 
     /* blinking */
     o->blink_ms += dt;
