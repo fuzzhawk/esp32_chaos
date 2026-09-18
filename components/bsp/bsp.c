@@ -91,12 +91,12 @@ esp_err_t bsp_init(void)
     const lvgl_port_display_cfg_t disp_cfg = {
         .io_handle     = s_panel_io,
         .panel_handle  = panel,
-        /* Full-frame buffers. With a partial buffer, any tall dirty region
-         * (the companion's 264px eye, the life grid) is split across several
-         * flushes and the panel scans out between them, which shows up as the
-         * image shearing into offset bands. One buffer per frame means one
-         * transaction per redraw. 466*466*2 = 434KB each, and we have 8MB. */
-        .buffer_size   = BSP_LCD_H_RES * BSP_LCD_V_RES,
+        /* 160 lines. Sized so a moving element's dirty region fits in one
+         * flush — the companion's iris sweeps ~140px — without going
+         * full-frame. A full 466*466 buffer pushes LVGL into redrawing the
+         * whole screen every frame, which in PSRAM saturates the CPU, starves
+         * the idle task and trips the watchdog. 149KB each, double buffered. */
+        .buffer_size   = BSP_LCD_H_RES * 160,
         .double_buffer = true,
         .hres          = BSP_LCD_H_RES,
         .vres          = BSP_LCD_V_RES,
