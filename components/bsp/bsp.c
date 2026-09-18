@@ -1,34 +1,138 @@
 /*
- * bsp.c — top-level board bring-up and LVGL integration.
+ * bsp.c — board bring-up, framebuffer and input.
  *
- * Boot order: PMIC → I2C → AMOLED → LVGL port → touch → IMU. esp_lvgl_port
- * runs LVGL on its own task with a recursive mutex; bsp_lvgl_lock/unlock are
- * thin wrappers so the rest of chaosOS can safely build UI from any task.
+ * Boot order: I2C -> bus scan -> PMIC -> AMOLED -> touch -> IMU -> buttons.
+ * After bsp_init() the rest of the system just draws into bsp_fb() and calls
+ * bsp_present(). No display toolkit is involved.
  */
 #include "bsp.h"
 #include "bsp_priv.h"
-#include "bsp_pins.h"
-#include "esp_lvgl_port.h"
+
+#include "esp_lcd_panel_ops.h"
+#include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
+#include "esp_heap_caps.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include <math.h>
+#include <string.h>
 
 static const char *TAG = "bsp";
 
-static lv_disp_t                 *s_disp;
-static esp_lcd_panel_io_handle_t  s_panel_io;
-static lv_indev_drv_t             s_indev_drv;
+static esp_lcd_panel_io_handle_t s_panel_io;
+static esp_lcd_panel_handle_t    s_panel;
+static uint16_t                 *s_fb;
+static SemaphoreHandle_t         s_flush_done;
 
 /* Bring-up results, reported periodically by status_task(). */
 static bool s_pmic_ok, s_touch_ok, s_imu_ok, s_disp_ok;
 static int  s_i2c_count;
 static char s_i2c_list[64];
 
-/* The USB console re-enumerates at app start, so whatever `screen` was showing
- * during boot is lost and the boot banner can never be caught reliably. Repeat
- * a one-line summary forever instead: attach whenever you like and the state of
- * every peripheral is on screen within five seconds. */
+/* Button edges, set by button_task() and consumed by bsp_button_pressed(). */
+static volatile bool s_btn_hit[BSP_BTN_COUNT];
+
+/* ------------------------------------------------------------------ */
+/*  Framebuffer                                                        */
+/* ------------------------------------------------------------------ */
+
+static bool IRAM_ATTR on_color_trans_done(esp_lcd_panel_io_handle_t io,
+                                          esp_lcd_panel_io_event_data_t *ev,
+                                          void *ctx)
+{
+    (void)io; (void)ev; (void)ctx;
+    BaseType_t hp_woken = pdFALSE;
+    xSemaphoreGiveFromISR(s_flush_done, &hp_woken);
+    return hp_woken == pdTRUE;
+}
+
+uint16_t *bsp_fb(void) { return s_fb; }
+
+void bsp_present(void)
+{
+    if (!s_panel || !s_fb) return;
+    esp_lcd_panel_draw_bitmap(s_panel, 0, 0, BSP_FB_W, BSP_FB_H, s_fb);
+    /* Block until the DMA has actually shipped the buffer; the caller reuses
+     * (and reads back from) this same memory on the next frame. */
+    xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(1000));
+}
+
+/* ------------------------------------------------------------------ */
+/*  Input                                                              */
+/* ------------------------------------------------------------------ */
+
+bool bsp_button_pressed(bsp_btn_t btn)
+{
+    if (btn >= BSP_BTN_COUNT) return false;
+    if (!s_btn_hit[btn]) return false;
+    s_btn_hit[btn] = false;
+    return true;
+}
+
+static void button_task(void *arg)
+{
+    (void)arg;
+    bool boot_was_down = false;
+
+    for (;;) {
+        /* BOOT: active low, simple debounce by sampling at 25ms. */
+        bool boot_down = gpio_get_level(BSP_BTN_BOOT_GPIO) == 0;
+        if (boot_down && !boot_was_down) {
+            s_btn_hit[BSP_BTN_ACTION] = true;
+            ESP_LOGI(TAG, "button: ACTION (BOOT)");
+        }
+        boot_was_down = boot_down;
+
+        /* Power key: the PMIC latches the press for us. */
+        if (bsp_power_pwrkey_pressed()) {
+            s_btn_hit[BSP_BTN_MODE] = true;
+            ESP_LOGI(TAG, "button: MODE (power key)");
+        }
+        vTaskDelay(pdMS_TO_TICKS(25));
+    }
+}
+
+bool bsp_imu_gravity(float *out_gx, float *out_gy)
+{
+    bsp_imu_sample_t s;
+    if (bsp_imu_read(&s) != ESP_OK || !s.valid) {
+        *out_gx = 0.0f;
+        *out_gy = 1.0f;          /* sane default: straight down */
+        return false;
+    }
+
+    float gx = s.ax, gy = s.ay;
+#if BSP_IMU_SCREEN_SWAP_XY
+    { float t = gx; gx = gy; gy = t; }
+#endif
+#if BSP_IMU_SCREEN_INVERT_X
+    gx = -gx;
+#endif
+#if BSP_IMU_SCREEN_INVERT_Y
+    gy = -gy;
+#endif
+
+    /* Normalise the in-plane component; if the board is flat there is no
+     * meaningful direction, so fall back to down. */
+    float mag = sqrtf(gx * gx + gy * gy);
+    if (mag < 0.12f) {
+        *out_gx = 0.0f;
+        *out_gy = 1.0f;
+        return true;
+    }
+    *out_gx = gx / mag;
+    *out_gy = gy / mag;
+    return true;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Status                                                             */
+/* ------------------------------------------------------------------ */
+
+/* The USB console re-enumerates at app start, so the boot log can never be
+ * caught reliably. Repeat the peripheral summary instead. */
 static void status_task(void *arg)
 {
     (void)arg;
@@ -39,111 +143,60 @@ static void status_task(void *arg)
                  s_touch_ok ? "ok" : "absent",
                  s_imu_ok   ? "ok" : "absent",
                  s_pmic_ok  ? "ok" : "absent");
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        vTaskDelay(pdMS_TO_TICKS(10000));
     }
 }
 
-/* LVGL polls this; it runs on the LVGL task so the blocking I2C read is fine
- * (a 15-byte transfer at 400kHz is well under a millisecond). LVGL needs the
- * last known coordinates on release, so they are held between presses. */
-static void touch_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
-{
-    (void)drv;
-    static uint16_t last_x, last_y;
-    uint16_t x, y;
-
-    if (bsp_touch_get_point(&x, &y)) {
-        last_x = x;
-        last_y = y;
-        data->state = LV_INDEV_STATE_PRESSED;
-    } else {
-        data->state = LV_INDEV_STATE_RELEASED;
-    }
-    data->point.x = last_x;
-    data->point.y = last_y;
-}
+/* ------------------------------------------------------------------ */
+/*  Bring-up                                                           */
+/* ------------------------------------------------------------------ */
 
 esp_err_t bsp_init(void)
 {
     ESP_LOGI(TAG, "chaosOS board bring-up");
 
-    /* The I2C driver logs an ERROR line for every failed transaction, which
-     * drowns the console if a chip is missing. Our own layers report what
-     * matters (see the bus scan below), so silence the driver's chatter. */
+    /* The I2C driver logs an ERROR per failed transaction, which drowns the
+     * console if a chip is missing; our own layers report what matters. */
     esp_log_level_set("i2c.master", ESP_LOG_NONE);
 
     ESP_RETURN_ON_ERROR(bsp_i2c_init(), TAG, "i2c");
     s_i2c_count = bsp_i2c_scan(s_i2c_list, sizeof(s_i2c_list));
 
     s_pmic_ok = (bsp_power_init() == ESP_OK);
-    if (!s_pmic_ok) {
-        ESP_LOGW(TAG, "continuing without PMIC telemetry");
-    }
+    if (!s_pmic_ok) ESP_LOGW(TAG, "continuing without PMIC telemetry");
 
-    /* --- display --- */
-    esp_lcd_panel_handle_t panel = NULL;
-    ESP_RETURN_ON_ERROR(bsp_display_init(&s_panel_io, &panel), TAG, "display");
+    s_flush_done = xSemaphoreCreateBinary();
+    ESP_RETURN_ON_FALSE(s_flush_done, ESP_ERR_NO_MEM, TAG, "flush sem");
 
-    /* --- LVGL port --- */
-    const lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
-    ESP_RETURN_ON_ERROR(lvgl_port_init(&port_cfg), TAG, "lvgl port");
-
-    const lvgl_port_display_cfg_t disp_cfg = {
-        .io_handle     = s_panel_io,
-        .panel_handle  = panel,
-        /* 160 lines. Sized so a moving element's dirty region fits in one
-         * flush — the companion's iris sweeps ~140px — without going
-         * full-frame. A full 466*466 buffer pushes LVGL into redrawing the
-         * whole screen every frame, which in PSRAM saturates the CPU, starves
-         * the idle task and trips the watchdog. 149KB each, double buffered. */
-        .buffer_size   = BSP_LCD_H_RES * 160,
-        .double_buffer = true,
-        .hres          = BSP_LCD_H_RES,
-        .vres          = BSP_LCD_V_RES,
-        .flags = {
-            .buff_spiram = true,   /* framebuffers live in PSRAM */
-        },
-    };
-    s_disp = lvgl_port_add_disp(&disp_cfg);
-    if (!s_disp) {
-        ESP_LOGE(TAG, "lvgl_port_add_disp failed");
-        return ESP_FAIL;
-    }
-
-    /* --- touch ---
-     * Registered as a plain LVGL pointer device rather than through
-     * lvgl_port_add_touch(), which requires an esp_lcd_touch handle; the
-     * CST9217 has no esp_lcd_touch driver so we poll it ourselves. */
-    if (bsp_touch_init() == ESP_OK) {
-        s_touch_ok = true;
-        lvgl_port_lock(0);
-        lv_indev_drv_init(&s_indev_drv);
-        s_indev_drv.type    = LV_INDEV_TYPE_POINTER;
-        s_indev_drv.disp    = s_disp;
-        s_indev_drv.read_cb = touch_read_cb;
-        lv_indev_drv_register(&s_indev_drv);
-        lvgl_port_unlock();
-    } else {
-        ESP_LOGW(TAG, "continuing without touch");
-    }
+    ESP_RETURN_ON_ERROR(bsp_display_init(&s_panel_io, &s_panel,
+                                         on_color_trans_done, NULL),
+                        TAG, "display");
     s_disp_ok = true;
 
-    /* --- IMU (non-fatal; the OS just loses motion events) --- */
+    s_fb = heap_caps_malloc(BSP_FB_PX * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    ESP_RETURN_ON_FALSE(s_fb, ESP_ERR_NO_MEM, TAG, "framebuffer");
+    memset(s_fb, 0, BSP_FB_PX * sizeof(uint16_t));
+
+    s_touch_ok = (bsp_touch_init() == ESP_OK);
+    if (!s_touch_ok) ESP_LOGW(TAG, "continuing without touch");
+
     s_imu_ok = (bsp_imu_init() == ESP_OK);
-    if (!s_imu_ok) {
-        ESP_LOGW(TAG, "continuing without IMU");
-    }
+    if (!s_imu_ok) ESP_LOGW(TAG, "continuing without IMU");
+
+    const gpio_config_t boot_cfg = {
+        .pin_bit_mask = 1ULL << BSP_BTN_BOOT_GPIO,
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_ENABLE,
+    };
+    gpio_config(&boot_cfg);
 
     bsp_set_brightness(90);
-    xTaskCreate(status_task, "bsp_status", 3072, NULL, 2, NULL);
+    xTaskCreatePinnedToCore(button_task, "bsp_btn", 3072, NULL, 5, NULL, 1);
+    xTaskCreatePinnedToCore(status_task, "bsp_status", 3072, NULL, 1, NULL, 1);
+
     ESP_LOGI(TAG, "board ready");
     return ESP_OK;
 }
-
-lv_disp_t *bsp_display(void) { return s_disp; }
-
-bool bsp_lvgl_lock(uint32_t timeout_ms) { return lvgl_port_lock(timeout_ms); }
-void bsp_lvgl_unlock(void)              { lvgl_port_unlock(); }
 
 esp_err_t bsp_set_brightness(uint8_t percent)
 {

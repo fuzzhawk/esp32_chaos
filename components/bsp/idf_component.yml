@@ -1,11 +1,10 @@
 # Managed-component dependencies for the board-support layer.
-# `idf.py reconfigure` (or the first build) fetches these into managed_components/.
+# LVGL is deliberately absent: chaosOS draws raw pixels into one framebuffer
+# and pushes it with esp_lcd, so no display toolkit is needed.
 dependencies:
   idf: ">=5.2"
-  lvgl/lvgl: "~8.3.0"
-  espressif/esp_lvgl_port: "^1.4"
-  # QSPI AMOLED panel driver. The SH8601 driver also drives the CO5300-class
-  # controller on this board via a custom init-command list (see bsp_display.c).
+  # QSPI AMOLED panel driver. The SH8601 driver also drives the CO5300
+  # controller on this board via a custom init-command list (bsp_display.c).
   espressif/esp_lcd_sh8601: "^1"
-  # NOTE: no touch component here. This board uses a CST9217, which has no
+  # NOTE: no touch component. This board uses a CST9217, which has no
   # esp_lcd_touch driver in the registry, so bsp_touch.c talks to it directly.

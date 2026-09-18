@@ -36,7 +36,9 @@ static const sh8601_lcd_init_cmd_t s_co5300_init[] = {
 };
 
 esp_err_t bsp_display_init(esp_lcd_panel_io_handle_t *out_io,
-                           esp_lcd_panel_handle_t *out_panel)
+                           esp_lcd_panel_handle_t *out_panel,
+                           esp_lcd_panel_io_color_trans_done_cb_t done_cb,
+                           void *cb_ctx)
 {
     ESP_LOGI(TAG, "init QSPI AMOLED %dx%d", BSP_LCD_H_RES, BSP_LCD_V_RES);
 
@@ -50,7 +52,7 @@ esp_err_t bsp_display_init(esp_lcd_panel_io_handle_t *out_io,
 
     esp_lcd_panel_io_handle_t io = NULL;
     const esp_lcd_panel_io_spi_config_t io_cfg =
-        SH8601_PANEL_IO_QSPI_CONFIG(BSP_LCD_CS_GPIO, NULL, NULL);
+        SH8601_PANEL_IO_QSPI_CONFIG(BSP_LCD_CS_GPIO, done_cb, cb_ctx);
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_spi(
                             (esp_lcd_spi_bus_handle_t)BSP_LCD_QSPI_HOST, &io_cfg, &io),
                         TAG, "panel io");

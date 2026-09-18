@@ -14,6 +14,7 @@
  * (SensorLib TouchDrvCST92xx). The chip's IRQ line only pulses periodically
  * rather than tracking press state, so we poll instead of using it.
  */
+#include "bsp.h"
 #include "bsp_priv.h"
 #include "bsp_pins.h"
 #include "driver/gpio.h"

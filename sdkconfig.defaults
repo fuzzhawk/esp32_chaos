@@ -6,52 +6,30 @@ CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
 
-# Octal PSRAM at 80MHz — required for a smooth 466x466 framebuffer.
-# NOTE: do NOT enable CONFIG_SPIRAM_FETCH_INSTRUCTIONS / CONFIG_SPIRAM_RODATA
-# here. They remap .text/.rodata from flash into PSRAM right after the PSRAM
-# memory test and hang the boot on this board. We allocate the large buffers
-# explicitly with heap_caps_malloc(MALLOC_CAP_SPIRAM) instead, so they buy
-# us nothing.
+# Octal PSRAM at 80MHz — the 466x466 framebuffer lives here.
+# NOTE: do NOT enable CONFIG_SPIRAM_FETCH_INSTRUCTIONS / CONFIG_SPIRAM_RODATA.
+# They remap .text/.rodata from flash into PSRAM right after the PSRAM memory
+# test and hang the boot on this board.
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 
-# --- Custom partition table ---
+# --- Custom partition table (24MB FAT reserved for voice notes) ---
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
-# --- CPU: run both LX7 cores flat out for the UI + sim workload ---
+# --- CPU: both LX7 cores flat out for the pixel sims ---
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_FREERTOS_HZ=1000
 
-# --- Main task gets a roomy stack (LVGL object trees live here at boot) ---
+# app_main runs the whole frame loop, so give it a real stack.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
-
-# --- LVGL: 16-bit color to match the panel's RGB565 path ---
-CONFIG_LV_COLOR_DEPTH_16=y
-# esp_lcd sends RGB565 big-endian, so LVGL must swap the two bytes itself.
-# (This is the LVGL-8 equivalent of esp_lvgl_port's swap_bytes flag.)
-CONFIG_LV_COLOR_16_SWAP=y
-CONFIG_LV_MEM_CUSTOM=y
-CONFIG_LV_MEMCPY_MEMSET_STD=y
-# Give LVGL its heap in PSRAM and a generous slice — big canvases live there.
-CONFIG_LV_MEM_SIZE_KILOBYTES=64
-# Fonts used across the chaosOS UI.
-CONFIG_LV_FONT_MONTSERRAT_14=y
-CONFIG_LV_FONT_MONTSERRAT_20=y
-CONFIG_LV_FONT_MONTSERRAT_28=y
-CONFIG_LV_FONT_MONTSERRAT_40=y
-CONFIG_LV_FONT_MONTSERRAT_48=y
-# Draw the app framebuffers/canvases used by the cellular-automata app.
-CONFIG_LV_USE_CANVAS=y
 
 # --- Console over the USB-C port ---
 # This board exposes the ESP32-S3's native USB (it enumerates as
-# /dev/cu.usbmodem* on macOS), not a UART bridge chip. Send the console
-# there so the full boot log reaches `screen`, instead of out UART0's pins.
+# /dev/cu.usbmodem* on macOS), not a UART bridge chip.
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
-# Quieter logs once things work; bump to INFO/DEBUG while bringing up hardware.
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y

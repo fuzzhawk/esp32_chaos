@@ -17,13 +17,26 @@ static const char *TAG = "bsp_power";
 
 #define AXP_STATUS1   0x00   /* bit5: VBUS good           */
 #define AXP_STATUS2   0x01   /* bits[6:5]: charge state   */
+#define AXP_INTEN1    0x40   /* interrupt enables 1..3    */
+#define AXP_INTSTS1   0x48   /* interrupt status 1..3, write 1 to clear */
 #define AXP_GAUGE_SOC 0xA4   /* battery percentage 0..100 */
+
+/* PKEY_SHORT is bit 11 of the 24-bit IRQ word, i.e. bit 3 of INTSTS2;
+ * PKEY_LONG is bit 10, i.e. bit 2. */
+#define AXP_INT2_PKEY_SHORT  (1 << 3)
+#define AXP_INT2_PKEY_LONG   (1 << 2)
 
 static i2c_master_dev_handle_t s_dev;
 
 static esp_err_t rd(uint8_t reg, uint8_t *val)
 {
     return i2c_master_transmit_receive(s_dev, &reg, 1, val, 1, 100);
+}
+
+static esp_err_t wr(uint8_t reg, uint8_t val)
+{
+    uint8_t buf[2] = { reg, val };
+    return i2c_master_transmit(s_dev, buf, sizeof(buf), 100);
 }
 
 esp_err_t bsp_power_init(void)
@@ -41,8 +54,26 @@ esp_err_t bsp_power_init(void)
     };
     ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(bsp_i2c_bus(), &dev_cfg, &s_dev),
                         TAG, "add pmic device");
+
+    /* Enable the power-key interrupts and clear anything stale, so the key
+     * can be polled as an ordinary button. */
+    wr(AXP_INTEN1 + 1, AXP_INT2_PKEY_SHORT | AXP_INT2_PKEY_LONG);
+    for (int i = 0; i < 3; i++) wr(AXP_INTSTS1 + i, 0xFF);
+
     ESP_LOGI(TAG, "AXP2101 ready");
     return ESP_OK;
+}
+
+bool bsp_power_pwrkey_pressed(void)
+{
+    if (!s_dev) return false;
+
+    uint8_t sts = 0;
+    if (rd(AXP_INTSTS1 + 1, &sts) != ESP_OK) return false;
+    if (!(sts & AXP_INT2_PKEY_SHORT)) return false;
+
+    wr(AXP_INTSTS1 + 1, AXP_INT2_PKEY_SHORT);   /* write 1 to clear */
+    return true;
 }
 
 esp_err_t bsp_power_status(bsp_power_status_t *out)

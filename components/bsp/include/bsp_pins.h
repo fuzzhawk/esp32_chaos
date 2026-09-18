@@ -62,6 +62,29 @@
 #define BSP_TOUCH_INT_GPIO      (-1)
 
 /* ------------------------------------------------------------------ */
+/*  Buttons.                                                           */
+/*  MODE   = AXP2101 power key, read over I2C. Confirmed: the PMIC     */
+/*           exposes PKEY_SHORT/PKEY_LONG interrupt bits.              */
+/*  ACTION = BOOT, the standard ESP32-S3 strapping button on GPIO0,    */
+/*           active low. Inferred from convention, not vendor code —   */
+/*           if the second button does nothing, this is the suspect.   */
+/*  (A long press on the power key may cut power; that is the PMIC's   */
+/*  own behaviour, so only short presses are used.)                    */
+/* ------------------------------------------------------------------ */
+#define BSP_BTN_BOOT_GPIO       0
+
+/* ------------------------------------------------------------------ */
+/*  IMU -> screen orientation.                                          */
+/*  The panel is mounted 180 deg relative to the touch layer, and the   */
+/*  IMU's axes are its own. These map accelerometer axes onto screen    */
+/*  space so "down" in a physics sim matches down on the glass. If      */
+/*  gravity pulls sideways or backwards, fix it here and nowhere else.  */
+/* ------------------------------------------------------------------ */
+#define BSP_IMU_SCREEN_SWAP_XY  1
+#define BSP_IMU_SCREEN_INVERT_X 0
+#define BSP_IMU_SCREEN_INVERT_Y 0
+
+/* ------------------------------------------------------------------ */
 /*  6-axis IMU — QMI8658 on the shared I2C bus.                        */
 /* ------------------------------------------------------------------ */
 #define BSP_IMU_I2C_ADDR        0x6B
