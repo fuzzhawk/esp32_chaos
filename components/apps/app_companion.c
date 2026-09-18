@@ -87,8 +87,12 @@ static void odd_save(odd_t *o)
 
 /* ---- visuals --------------------------------------------------------- */
 
-static uint32_t mix(uint32_t a, uint32_t b, float t)
+static float clampf(float v, float lo, float hi)
 {
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+static uint32_t mix(uint32_t a, uint32_t b, float t){
     int ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, ab = a & 0xFF;
     int br = (b >> 16) & 0xFF, bg = (b >> 8) & 0xFF, bb = b & 0xFF;
     int r = ar + (int)((br - ar) * t);
@@ -244,10 +248,8 @@ static void odd_event(chaos_app_t *app, const chaos_event_t *ev)
     switch (ev->type) {
     case CHAOS_EV_TILT:
         /* roll -> horizontal gaze, pitch -> vertical gaze */
-        o->tgt_x =  ev->vec.x * 1.3f;
-        o->tgt_y = -ev->vec.y * 1.3f;
-        if (o->tgt_x >  58) o->tgt_x =  58; if (o->tgt_x < -58) o->tgt_x = -58;
-        if (o->tgt_y >  58) o->tgt_y =  58; if (o->tgt_y < -58) o->tgt_y = -58;
+        o->tgt_x = clampf( ev->vec.x * 1.3f, -58.0f, 58.0f);
+        o->tgt_y = clampf(-ev->vec.y * 1.3f, -58.0f, 58.0f);
         break;
     case CHAOS_EV_SHAKE:
         o->agit = 1.0f;
