@@ -46,7 +46,7 @@ esp_err_t bsp_display_init(esp_lcd_panel_io_handle_t *out_io,
         BSP_LCD_PCLK_GPIO,
         BSP_LCD_DATA0_GPIO, BSP_LCD_DATA1_GPIO,
         BSP_LCD_DATA2_GPIO, BSP_LCD_DATA3_GPIO,
-        BSP_LCD_H_RES * BSP_LCD_V_RES * 2);
+        BSP_LCD_H_RES * BSP_LCD_BAND_LINES * 2 + 64);
     ESP_RETURN_ON_ERROR(spi_bus_initialize(BSP_LCD_QSPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO),
                         TAG, "spi bus init");
 

@@ -53,10 +53,23 @@ uint16_t *bsp_fb(void) { return s_fb; }
 void bsp_present(void)
 {
     if (!s_panel || !s_fb) return;
-    esp_lcd_panel_draw_bitmap(s_panel, 0, 0, BSP_FB_W, BSP_FB_H, s_fb);
-    /* Block until the DMA has actually shipped the buffer; the caller reuses
-     * (and reads back from) this same memory on the next frame. */
-    xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(1000));
+
+    /* Ship the frame in bands. A full 466x466 frame is ~434KB, more than the
+     * SPI driver will accept in one queued transaction — it returns an error
+     * rather than splitting, which leaves the panel showing nothing at all. */
+    for (int y = 0; y < BSP_FB_H; y += BSP_LCD_BAND_LINES) {
+        int h = BSP_LCD_BAND_LINES;
+        if (y + h > BSP_FB_H) h = BSP_FB_H - y;
+
+        esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, y, BSP_FB_W, y + h,
+                                                  &s_fb[y * BSP_FB_W]);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "draw_bitmap band y=%d failed: %s", y, esp_err_to_name(err));
+            return;                     /* don't block on a transfer that never started */
+        }
+        /* Wait for the DMA to finish before touching this memory again. */
+        xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(200));
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -173,7 +186,11 @@ esp_err_t bsp_init(void)
                         TAG, "display");
     s_disp_ok = true;
 
-    s_fb = heap_caps_malloc(BSP_FB_PX * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    /* 64-byte aligned: SPI DMA reads this straight out of PSRAM, and an
+     * unaligned buffer is rejected at queue time. (esp_lvgl_port did the same
+     * for its own buffers, which is why it worked where a plain malloc does
+     * not.) */
+    s_fb = heap_caps_aligned_alloc(64, BSP_FB_PX * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
     ESP_RETURN_ON_FALSE(s_fb, ESP_ERR_NO_MEM, TAG, "framebuffer");
     memset(s_fb, 0, BSP_FB_PX * sizeof(uint16_t));
 

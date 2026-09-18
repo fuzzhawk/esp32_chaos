@@ -40,6 +40,11 @@
 #define BSP_LCD_RST_GPIO        1        /* LCD_RESET */
 #define BSP_LCD_QSPI_FREQ_HZ    (40 * 1000 * 1000)
 
+/* The framebuffer is pushed in horizontal bands rather than one 434KB
+ * transfer: a whole frame exceeds what the SPI driver will queue in a single
+ * transaction, and it fails outright rather than splitting for you. */
+#define BSP_LCD_BAND_LINES      100
+
 /* Adjust only if the image sits off-centre on the glass. */
 #define BSP_LCD_GAP_X           0
 #define BSP_LCD_GAP_Y           0
