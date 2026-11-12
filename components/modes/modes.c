@@ -14,7 +14,7 @@ static const char *TAG = "chaos";
 
 static const chaos_mode_t *const s_modes[] = {
     &mode_sand,      /* boots here */
-    &mode_rpg,
+    &mode_garden,
     &mode_glitch,
 };
 #define MODE_COUNT (sizeof(s_modes) / sizeof(s_modes[0]))
@@ -37,7 +37,7 @@ static void switch_to(int idx)
 
     static const uint8_t tint[][3] = {
         { 40, 30, 10 },   /* sand   */
-        { 10, 30, 40 },   /* rpg    */
+        { 14, 36, 16 },   /* garden */
         { 40, 10, 40 },   /* glitch */
     };
     mode_splash(fx_rgb(tint[idx][0], tint[idx][1], tint[idx][2]));

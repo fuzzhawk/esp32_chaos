@@ -21,10 +21,18 @@
 
 static const char *TAG = "sand";
 
-#define CELL   3
-#define GW     155
-#define GH     155
-#define ORIGIN 0                       /* 155*3 = 465, one spare pixel */
+/* Cell size 4 (not 3): a coarser grid is 44% fewer cells to simulate, and a
+ * 4px run is two aligned 32-bit stores per row when drawing. */
+#define CELL   4
+#define GW     116
+#define GH     116
+#define ORIGIN 0                       /* 116*4 = 464; keep 0 so each cell row
+                                        * starts 4-byte aligned for the 32-bit
+                                        * stores in render() */
+
+/* Water is a closed system: it moves and soaks away but is never created
+ * except by the generator and your finger, and only up to this many cells. */
+#define WATER_CAP 5200
 
 enum {
     EMPTY = 0, WALL, SAND, WATER, STONE, SOIL, WET_SOIL, PLANT, MAT_COUNT
@@ -35,9 +43,13 @@ static const uint8_t PAINTS[] = { SAND, WATER, SOIL, STONE, PLANT, EMPTY };
 #define PAINT_COUNT (sizeof(PAINTS) / sizeof(PAINTS[0]))
 
 static uint8_t *s_cell;                /* GW*GH */
+static uint8_t *s_prev;                /* last drawn frame, for dirty redraw */
 static uint8_t *s_moved;               /* GW*GH, cleared each frame */
 static int      s_paint;               /* index into PAINTS */
 static uint32_t s_hint_ms;             /* rim-flash countdown */
+static bool     s_full_redraw;         /* force a complete repaint */
+static int      s_water;               /* cells of water currently in play */
+static uint32_t s_recount_ms;
 
 static inline uint8_t at(int x, int y)
 {
@@ -92,11 +104,11 @@ static void generate(void)
     }
 
     /* Pour a little water into the left and right dips so there is something
-     * to slosh immediately. */
+     * to slosh immediately. Sized well under WATER_CAP. */
     for (int i = 0; i < 2; i++) {
         int cx = (i == 0) ? GW / 4 : (GW * 3) / 4;
-        for (int y = base - 22; y < base; y++)
-            for (int x = cx - 16; x < cx + 16; x++)
+        for (int y = base - 16; y < base; y++)
+            for (int x = cx - 12; x < cx + 12; x++)
                 if (at(x, y) == EMPTY) put(x, y, WATER);
     }
 
@@ -156,6 +168,7 @@ static void step_water(int x, int y, int dx, int dy, int px, int py)
             if (at(nx[i], ny[i]) == SOIL) {
                 put(nx[i], ny[i], WET_SOIL);
                 put(x, y, EMPTY);
+                s_water--;                    /* water leaves the system here */
                 return;
             }
         }
@@ -231,6 +244,15 @@ static void simulate(void)
 /*  Painting                                                           */
 /* ------------------------------------------------------------------ */
 
+/* Count the water actually on the board. Cheap enough to run occasionally,
+ * and it means no amount of bookkeeping drift can let the world flood. */
+static int count_water(void)
+{
+    int n = 0;
+    for (int i = 0; i < GW * GH; i++) if (s_cell[i] == WATER) n++;
+    return n;
+}
+
 static void paint_at(int sx, int sy)
 {
     int cx = (sx - ORIGIN) / CELL, cy = (sy - ORIGIN) / CELL;
@@ -247,6 +269,11 @@ static void paint_at(int sx, int sy)
             if (mat == SAND || mat == WATER || mat == PLANT) {
                 if (at(x, y) != EMPTY) continue;
             }
+            if (mat == WATER) {
+                if (s_water >= WATER_CAP) continue;   /* the tap runs dry */
+                s_water++;
+            }
+            if (at(x, y) == WATER) s_water--;         /* painted over */
             put(x, y, mat);
         }
     }
@@ -281,21 +308,33 @@ static void build_palette(void)
     }
 }
 
+/* Only repaint cells that changed since the last frame. The framebuffer
+ * persists between frames, so a settled world costs almost nothing to draw —
+ * this, not the grid size, is what sets the frame rate. */
 static void render(void)
 {
     uint16_t *fb = bsp_fb();
+    bool all = s_full_redraw;
+    s_full_redraw = false;
 
     for (int y = 0; y < GH; y++) {
+        int row = y * GW;
         for (int x = 0; x < GW; x++) {
-            uint8_t m = s_cell[y * GW + x];
+            uint8_t m = s_cell[row + x];
+            if (!all && m == s_prev[row + x]) continue;
+            s_prev[row + x] = m;
+
             /* Deterministic per-cell shade so the texture does not crawl. */
             uint16_t c = s_pal[m][(x * 7 + y * 13) & 3];
+            uint32_t pair = ((uint32_t)c << 16) | c;
 
-            int fy = ORIGIN + y * CELL;
+            int fy  = ORIGIN + y * CELL;
             int fx0 = ORIGIN + x * CELL;
             for (int r = 0; r < CELL; r++) {
-                uint16_t *p = &fb[(fy + r) * BSP_FB_W + fx0];
-                p[0] = c; p[1] = c; p[2] = c;
+                /* CELL is 4, so each row is two aligned 32-bit stores. */
+                uint32_t *p = (uint32_t *)&fb[(fy + r) * BSP_FB_W + fx0];
+                p[0] = pair;
+                p[1] = pair;
             }
         }
     }
@@ -314,20 +353,25 @@ static void render(void)
 static void sand_enter(void)
 {
     s_cell  = heap_caps_malloc(GW * GH, MALLOC_CAP_INTERNAL);
+    s_prev  = heap_caps_malloc(GW * GH, MALLOC_CAP_INTERNAL);
     s_moved = heap_caps_malloc(GW * GH, MALLOC_CAP_INTERNAL);
-    if (!s_cell || !s_moved) {
+    if (!s_cell || !s_prev || !s_moved) {
         ESP_LOGE(TAG, "out of memory for the grid");
         return;
     }
     build_palette();
     generate();
-    s_paint   = 0;
-    s_hint_ms = 700;
+    s_water       = count_water();
+    s_paint       = 0;
+    s_hint_ms     = 700;
+    s_full_redraw = true;
+    ESP_LOGI(TAG, "world seeded with %d water cells (cap %d)", s_water, WATER_CAP);
 }
 
 static void sand_leave(void)
 {
     free(s_cell);  s_cell  = NULL;
+    free(s_prev);  s_prev  = NULL;
     free(s_moved); s_moved = NULL;
 }
 
@@ -339,9 +383,20 @@ static void sand_tick(uint32_t dt)
     if (bsp_touch_get_point(&tx, &ty)) paint_at(tx, ty);
 
     simulate();
-    render();
 
+    /* Recount periodically: cheap, and it makes the cap impossible to defeat
+     * through any bookkeeping slip elsewhere in the sim. */
+    s_recount_ms += dt;
+    if (s_recount_ms >= 2000) {
+        s_recount_ms = 0;
+        s_water = count_water();
+    }
+
+    bool hint_was = s_hint_ms > 0;
     s_hint_ms = (s_hint_ms > dt) ? s_hint_ms - dt : 0;
+    if (hint_was && s_hint_ms == 0) s_full_redraw = true;   /* clear the rim */
+
+    render();
 }
 
 static void sand_action(void)
