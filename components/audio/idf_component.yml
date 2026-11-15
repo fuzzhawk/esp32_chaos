@@ -1,0 +1,5 @@
+# Espressif's codec abstraction: it owns the ES8311 and ES7210 register
+# sequences, which is the part worth not hand-rolling.
+dependencies:
+  idf: ">=5.2"
+  espressif/esp_codec_dev: "^1.3"

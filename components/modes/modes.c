@@ -16,6 +16,7 @@ static const chaos_mode_t *const s_modes[] = {
     &mode_sand,      /* boots here */
     &mode_garden,
     &mode_glitch,
+    &mode_audio,
 };
 #define MODE_COUNT (sizeof(s_modes) / sizeof(s_modes[0]))
 
@@ -39,6 +40,7 @@ static void switch_to(int idx)
         { 40, 30, 10 },   /* sand   */
         { 14, 36, 16 },   /* garden */
         { 40, 10, 40 },   /* glitch */
+        { 10, 24, 44 },   /* audio  */
     };
     mode_splash(fx_rgb(tint[idx][0], tint[idx][1], tint[idx][2]));
 

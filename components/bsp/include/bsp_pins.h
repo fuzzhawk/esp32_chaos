@@ -93,6 +93,21 @@
 #define BSP_IMU_SCREEN_INVERT_Y 0
 
 /* ------------------------------------------------------------------ */
+/*  Audio. One I2S bus, full duplex: the ES8311 codec (speaker) and the */
+/*  ES7210 ADC (dual mic array) share MCLK/BCLK/WS, with separate data  */
+/*  lines. Pins from the vendor's board_config/pin_config.h.            */
+/* ------------------------------------------------------------------ */
+#define BSP_I2S_MCLK_GPIO       16
+#define BSP_I2S_BCLK_GPIO       9
+#define BSP_I2S_WS_GPIO         45
+#define BSP_I2S_DOUT_GPIO       8        /* ESP32 -> ES8311 (playback) */
+#define BSP_I2S_DIN_GPIO        10       /* ES7210 -> ESP32 (capture)  */
+#define BSP_PA_GPIO             46       /* speaker amplifier enable   */
+
+#define BSP_ES8311_I2C_ADDR     0x18
+#define BSP_ES7210_I2C_ADDR     0x40
+
+/* ------------------------------------------------------------------ */
 /*  6-axis IMU — QMI8658 on the shared I2C bus.                        */
 /* ------------------------------------------------------------------ */
 #define BSP_IMU_I2C_ADDR        0x6B

@@ -219,3 +219,8 @@ esp_err_t bsp_set_brightness(uint8_t percent)
 {
     return bsp_display_set_brightness(s_panel_io, percent);
 }
+
+i2c_master_bus_handle_t bsp_i2c_handle(void)
+{
+    return bsp_i2c_bus();
+}

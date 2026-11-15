@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "driver/i2c_master.h"
 #include "bsp_pins.h"
 
 #ifdef __cplusplus
@@ -73,6 +74,9 @@ typedef struct {
 } bsp_power_status_t;
 
 esp_err_t bsp_power_status(bsp_power_status_t *out);
+
+/* The shared I2C bus, so the audio codecs can hang off it too. */
+i2c_master_bus_handle_t bsp_i2c_handle(void);
 
 #ifdef __cplusplus
 }

@@ -21,6 +21,7 @@ typedef struct {
 extern const chaos_mode_t mode_sand;     /* pixel gravity sim  */
 extern const chaos_mode_t mode_garden;   /* the garden         */
 extern const chaos_mode_t mode_glitch;   /* glitch sigils      */
+extern const chaos_mode_t mode_audio;    /* record / playback  */
 
 /* Boots into the first mode and never returns. */
 void chaos_run(void);
