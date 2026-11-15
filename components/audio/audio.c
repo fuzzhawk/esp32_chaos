@@ -108,7 +108,7 @@ static esp_codec_dev_handle_t make_mic(const audio_codec_data_if_t *data_if)
 
     es7210_codec_cfg_t cfg = {
         .ctrl_if      = ctrl,
-        .mic_selected = ES7120_SEL_MIC1 | ES7120_SEL_MIC2,  /* the dual array */
+        .mic_selected = ES7210_SEL_MIC1 | ES7210_SEL_MIC2,  /* the dual array */
     };
     const audio_codec_if_t *codec = es7210_codec_new(&cfg);
     if (!codec) { ESP_LOGE(TAG, "es7210 init failed"); return NULL; }
