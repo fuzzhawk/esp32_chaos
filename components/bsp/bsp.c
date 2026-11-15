@@ -156,6 +156,12 @@ static void status_task(void *arg)
                  s_touch_ok ? "ok" : "absent",
                  s_imu_ok   ? "ok" : "absent",
                  s_pmic_ok  ? "ok" : "absent");
+        /* Heap matters: modes allocate tens of KB of internal RAM on entry,
+         * and a failed allocation is otherwise a silent black screen. */
+        ESP_LOGI(TAG, "heap: internal %u free (min %u), psram %u free",
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                 (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
         vTaskDelay(pdMS_TO_TICKS(10000));
     }
 }

@@ -881,7 +881,10 @@ static void garden_leave(void)
 
 static void garden_tick(uint32_t dt)
 {
-    if (!G) return;
+    if (!G) {
+        fx_clear(bsp_fb(), fx_rgb(120, 0, 0));   /* could not allocate */
+        return;
+    }
     static uint32_t clock_ms, save_ms;
     clock_ms += dt;
 

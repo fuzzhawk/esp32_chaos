@@ -350,13 +350,24 @@ static void render(void)
 /*  Mode interface                                                     */
 /* ------------------------------------------------------------------ */
 
+/* Grids prefer internal RAM for speed, but PSRAM beats not running at all. */
+static uint8_t *grid_alloc(void)
+{
+    uint8_t *p = heap_caps_malloc(GW * GH, MALLOC_CAP_INTERNAL);
+    if (!p) {
+        p = heap_caps_malloc(GW * GH, MALLOC_CAP_SPIRAM);
+        if (p) ESP_LOGW(TAG, "grid fell back to PSRAM (internal RAM is tight)");
+    }
+    return p;
+}
+
 static void sand_enter(void)
 {
-    s_cell  = heap_caps_malloc(GW * GH, MALLOC_CAP_INTERNAL);
-    s_prev  = heap_caps_malloc(GW * GH, MALLOC_CAP_INTERNAL);
-    s_moved = heap_caps_malloc(GW * GH, MALLOC_CAP_INTERNAL);
+    s_cell  = grid_alloc();
+    s_prev  = grid_alloc();
+    s_moved = grid_alloc();
     if (!s_cell || !s_prev || !s_moved) {
-        ESP_LOGE(TAG, "out of memory for the grid");
+        ESP_LOGE(TAG, "out of memory for the grid (%d bytes x3)", GW * GH);
         return;
     }
     build_palette();
@@ -377,7 +388,12 @@ static void sand_leave(void)
 
 static void sand_tick(uint32_t dt)
 {
-    if (!s_cell) return;
+    if (!s_cell) {
+        /* Never leave the screen black and silent: a mode that could not
+         * start says so in a colour you cannot mistake for "off". */
+        fx_clear(bsp_fb(), fx_rgb(120, 0, 0));
+        return;
+    }
 
     uint16_t tx, ty;
     if (bsp_touch_get_point(&tx, &ty)) paint_at(tx, ty);
