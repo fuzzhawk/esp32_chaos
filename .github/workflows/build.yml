@@ -27,6 +27,19 @@ jobs:
             cd build &&
             esptool.py --chip esp32s3 merge_bin -o chaos_os-merged.bin @flash_args
 
+      - name: Inspect esp_codec_dev (temporary, for the I2C driver conflict)
+        run: |
+          D=managed_components/espressif__esp_codec_dev
+          echo "===== version ====="; cat $D/idf_component.yml 2>/dev/null | head -20
+          echo "===== Kconfig files ====="; find $D -name 'Kconfig*' -print -exec cat {} \; 2>/dev/null
+          echo "===== ctrl_if vtable ====="; cat $D/interface/audio_codec_ctrl_if.h 2>/dev/null
+          echo "===== i2c cfg struct ====="
+          grep -n -B4 -A14 'audio_codec_i2c_cfg_t' $D/include/esp_codec_dev_defaults.h 2>/dev/null
+          echo "===== how ctrl_i2c picks a driver ====="
+          grep -n '#if\|#else\|#endif\|#include\|i2c_master_bus\|i2c_param_config\|driver/i2c' \
+            $D/platform/audio_codec_ctrl_i2c.c 2>/dev/null | head -50
+        continue-on-error: true
+
       - name: Collect the files worth downloading
         run: |
           mkdir -p artifacts
