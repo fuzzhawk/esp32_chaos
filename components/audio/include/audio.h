@@ -26,7 +26,29 @@ typedef enum {
     AUDIO_IDLE = 0,
     AUDIO_RECORDING,
     AUDIO_PLAYING,
+    AUDIO_DRONE,        /* granular cloud, runs until stopped */
 } audio_state_t;
+
+/* Granular voice parameters. Everything is normalised so the UI can map
+ * touch and tilt onto them without knowing about sample rates. */
+typedef struct {
+    float position;     /* 0..1  where in the take grains are drawn from   */
+    float spread;       /* 0..1  randomness around that point              */
+    float grain_ms;     /* 15..400  short = buzzy, long = smeared pad      */
+    float pitch;        /* 0.25..4  playback rate of each grain            */
+    float density;      /* 0..1  how many grains overlap                   */
+    float gain;         /* 0..1                                            */
+} audio_grain_cfg_t;
+
+/* A live grain, for drawing the cloud that is actually sounding. */
+typedef struct {
+    float src01;        /* where in the take it is reading   */
+    float life01;       /* 0 at birth, 1 as it fades out     */
+    float rate;         /* its pitch                         */
+    float pan;          /* 0 left .. 1 right                 */
+} audio_grain_info_t;
+
+#define AUDIO_MAX_GRAINS 24
 
 /* Brings up I2S and both codecs. Safe to call twice. */
 esp_err_t audio_init(void);
@@ -48,6 +70,18 @@ void audio_record(int seconds);
 
 /* Replay whatever was last recorded. */
 void audio_play(void);
+
+/* Start/stop the granular drone. It runs continuously off the last take and
+ * keeps going until stopped or a new recording begins. */
+void audio_drone_start(void);
+bool audio_has_take(void);
+
+/* Update the grain parameters. Cheap and safe to call every frame. */
+void audio_set_grains(const audio_grain_cfg_t *cfg);
+
+/* Copy out the currently sounding grains, newest state wins. Returns how many
+ * were written. Racy by design — it is only used for drawing. */
+int audio_grain_snapshot(audio_grain_info_t *out, int max);
 
 void audio_stop(void);
 

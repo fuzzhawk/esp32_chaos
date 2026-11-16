@@ -144,6 +144,147 @@ static void open_devices(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Granular engine                                                    */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    float pos;        /* read head in the take, frames (fractional) */
+    float rate;       /* playback speed = pitch                     */
+    int   age, len;   /* frames elapsed / grain length              */
+    float amp, pan;
+    bool  active;
+} grain_t;
+
+static grain_t          s_grain[AUDIO_MAX_GRAINS];
+static audio_grain_cfg_t s_gcfg = {
+    .position = 0.0f, .spread = 0.08f, .grain_ms = 120.0f,
+    .pitch = 1.0f, .density = 0.5f, .gain = 0.8f,
+};
+static float s_spawn_accum;
+static uint32_t s_rng = 0x12345678u;
+
+static inline float frand(void)
+{
+    s_rng ^= s_rng << 13; s_rng ^= s_rng >> 17; s_rng ^= s_rng << 5;
+    return (float)(s_rng & 0xFFFFFF) / 16777216.0f;
+}
+
+/* Raised cosine: grains must fade in and out or every one of them clicks. */
+static inline float window(int age, int len)
+{
+    float x = (float)age / (float)len;
+    return 0.5f - 0.5f * cosf(2.0f * (float)M_PI * x);
+}
+
+static void spawn_grain(void)
+{
+    if (!s_take_frames) return;
+    for (int i = 0; i < AUDIO_MAX_GRAINS; i++) {
+        if (s_grain[i].active) continue;
+        grain_t *g = &s_grain[i];
+
+        float jitter = (frand() * 2.0f - 1.0f) * s_gcfg.spread;
+        float at = s_gcfg.position + jitter;
+        while (at < 0.0f) at += 1.0f;
+        while (at > 1.0f) at -= 1.0f;
+
+        g->len  = (int)(s_gcfg.grain_ms * AUDIO_SAMPLE_RATE / 1000.0f);
+        if (g->len < 32) g->len = 32;
+        g->pos  = at * (float)s_take_frames;
+        /* A little detune per grain: this is what turns a stutter into a
+         * chorus, and it is most of why the drone sounds alive. */
+        g->rate = s_gcfg.pitch * (1.0f + (frand() - 0.5f) * 0.04f);
+        g->amp  = 0.5f + frand() * 0.5f;
+        g->pan  = frand();
+        g->age  = 0;
+        g->active = true;
+        return;
+    }
+}
+
+static void render_grains(int16_t *out, int frames)
+{
+    static int32_t acc[CHUNK_FRAMES * AUDIO_CHANNELS];
+    memset(acc, 0, (size_t)frames * AUDIO_CHANNELS * sizeof(int32_t));
+
+    /* Density maps to grains per second; with overlap this is what sets how
+     * thick the cloud is. */
+    float per_sec = 3.0f + s_gcfg.density * 55.0f;
+    s_spawn_accum += per_sec * (float)frames / AUDIO_SAMPLE_RATE;
+    while (s_spawn_accum >= 1.0f) {
+        s_spawn_accum -= 1.0f;
+        spawn_grain();
+    }
+
+    for (int i = 0; i < AUDIO_MAX_GRAINS; i++) {
+        grain_t *g = &s_grain[i];
+        if (!g->active) continue;
+
+        for (int n = 0; n < frames; n++) {
+            if (g->age >= g->len) { g->active = false; break; }
+
+            /* Linear interpolation so non-unity rates do not alias badly. */
+            int   i0 = (int)g->pos;
+            float fr = g->pos - (float)i0;
+            int   i1 = i0 + 1;
+            if (i1 >= (int)s_take_frames) i1 = 0;
+
+            float s0 = (float)s_take[(size_t)i0 * AUDIO_CHANNELS];
+            float s1 = (float)s_take[(size_t)i1 * AUDIO_CHANNELS];
+            float v  = (s0 + (s1 - s0) * fr) * window(g->age, g->len) * g->amp;
+
+            acc[n * AUDIO_CHANNELS + 0] += (int32_t)(v * (1.0f - g->pan));
+            acc[n * AUDIO_CHANNELS + 1] += (int32_t)(v * g->pan);
+
+            g->pos += g->rate;
+            if (g->pos >= (float)s_take_frames) g->pos -= (float)s_take_frames;
+            if (g->pos < 0.0f) g->pos += (float)s_take_frames;
+            g->age++;
+        }
+    }
+
+    /* Mix down with headroom, then clip. Many overlapping grains add up. */
+    float scale = s_gcfg.gain * 0.5f;
+    for (int n = 0; n < frames * AUDIO_CHANNELS; n++) {
+        int32_t v = (int32_t)(acc[n] * scale);
+        if (v >  32767) v =  32767;
+        if (v < -32768) v = -32768;
+        out[n] = (int16_t)v;
+    }
+}
+
+void audio_drone_start(void)
+{
+    if (!s_ready || !s_take_frames || !s_spk_ok) return;
+    memset(s_grain, 0, sizeof(s_grain));
+    s_spawn_accum = 0.0f;
+    s_state = AUDIO_DRONE;
+    ESP_LOGI(TAG, "drone from %u frames", (unsigned)s_take_frames);
+}
+
+bool audio_has_take(void) { return s_take_frames > 0; }
+
+void audio_set_grains(const audio_grain_cfg_t *cfg)
+{
+    if (cfg) s_gcfg = *cfg;
+}
+
+int audio_grain_snapshot(audio_grain_info_t *out, int max)
+{
+    int n = 0;
+    for (int i = 0; i < AUDIO_MAX_GRAINS && n < max; i++) {
+        const grain_t *g = &s_grain[i];
+        if (!g->active || !s_take_frames) continue;
+        out[n].src01  = g->pos / (float)s_take_frames;
+        out[n].life01 = g->len ? (float)g->age / (float)g->len : 0.0f;
+        out[n].rate   = g->rate;
+        out[n].pan    = g->pan;
+        n++;
+    }
+    return n;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Worker                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -237,6 +378,13 @@ static void audio_task(void *arg)
             break;
         }
 
+        case AUDIO_DRONE: {
+            if (!s_spk_ok || !s_take_frames) { s_state = AUDIO_IDLE; break; }
+            render_grains(chunk, CHUNK_FRAMES);
+            esp_codec_dev_write(s_spk, chunk, CHUNK_FRAMES * FRAME_BYTES);
+            break;
+        }
+
         default:
             /* Idle: keep reading so the level meter stays live. Discarded. */
             if (s_mic_ok &&
@@ -302,8 +450,10 @@ void audio_play_tone(int freq_hz, int ms)
 
 void audio_record(int seconds)
 {
-    if (!s_ready || s_state != AUDIO_IDLE) return;
+    if (!s_ready || s_state == AUDIO_RECORDING) return;
     if (seconds > AUDIO_MAX_SECONDS) seconds = AUDIO_MAX_SECONDS;
+    /* Recording replaces the grain source, so silence the drone first. */
+    s_state  = AUDIO_IDLE;
     s_pos    = 0;
     s_target = (uint32_t)(AUDIO_SAMPLE_RATE * seconds);
     s_state  = AUDIO_RECORDING;
