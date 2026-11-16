@@ -32,4 +32,12 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 # /dev/cu.usbmodem* on macOS), not a UART bridge chip.
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
+# --- Audio codecs ---
+# esp_codec_dev defaults to the LEGACY I2C driver. Our BSP uses the new
+# i2c_master driver, and the legacy driver's startup constructor calls
+# abort() when both are linked ("CONFLICT! driver_ng is not allowed to be
+# used with this old driver"). Turning this off selects the new-driver path,
+# which the component only offers on ESP-IDF 5.3 or newer.
+CONFIG_CODEC_I2C_BACKWARD_COMPATIBLE=n
+
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y

@@ -18,7 +18,11 @@ jobs:
       - name: Build + merge into a single flashable image
         uses: espressif/esp-idf-ci-action@v1
         with:
-          esp_idf_version: v5.2.2
+          # 5.3+ is required: esp_codec_dev only compiles against the new
+          # i2c_master driver from that version on, and below it it pulls in
+          # the legacy I2C driver, whose startup constructor aborts when it
+          # sees the new one (which our BSP uses).
+          esp_idf_version: v5.3.2
           target: esp32s3
           # merge_bin glues bootloader + partition table + app into ONE file
           # that flashes to offset 0x0, so flashing is a single command.
@@ -27,17 +31,14 @@ jobs:
             cd build &&
             esptool.py --chip esp32s3 merge_bin -o chaos_os-merged.bin @flash_args
 
-      - name: Inspect esp_codec_dev (temporary, for the I2C driver conflict)
+      - name: Confirm the codec talks to the new I2C driver
         run: |
-          D=managed_components/espressif__esp_codec_dev
-          echo "===== version ====="; cat $D/idf_component.yml 2>/dev/null | head -20
-          echo "===== Kconfig files ====="; find $D -name 'Kconfig*' -print -exec cat {} \; 2>/dev/null
-          echo "===== ctrl_if vtable ====="; cat $D/interface/audio_codec_ctrl_if.h 2>/dev/null
-          echo "===== i2c cfg struct ====="
-          grep -n -B4 -A14 'audio_codec_i2c_cfg_t' $D/include/esp_codec_dev_defaults.h 2>/dev/null
-          echo "===== how ctrl_i2c picks a driver ====="
-          grep -n '#if\|#else\|#endif\|#include\|i2c_master_bus\|i2c_param_config\|driver/i2c' \
-            $D/platform/audio_codec_ctrl_i2c.c 2>/dev/null | head -50
+          echo "IDF version used:"; grep -m1 IDF_VER build/config/sdkconfig.h 2>/dev/null
+          echo "codec I2C setting (want: not set / =n):"
+          grep -n 'CODEC_I2C_BACKWARD_COMPATIBLE' build/config/sdkconfig 2>/dev/null \
+            || echo "  CONFIG_CODEC_I2C_BACKWARD_COMPATIBLE absent -> new driver path"
+          echo "legacy driver linked? (want: no hits)"
+          grep -c 'driver/i2c\.h' managed_components/espressif__esp_codec_dev/platform/audio_codec_ctrl_i2c.c 2>/dev/null
         continue-on-error: true
 
       - name: Collect the files worth downloading
